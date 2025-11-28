@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 aya = "0.13.1"  # Latest stable
-aya-log-ebpf = "0.13.1"
+aya-log-ebpf = "0.1.0"
 
 [lib]
 crate-type = ["cdylib"]
