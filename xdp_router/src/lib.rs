@@ -32,7 +32,12 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
     let ipv4hdr: *const Ipv4Hdr = ctx.layer(Layer::Ipv4)?.header();
     let ipv4hdr = unsafe { *ipv4hdr };
 
-    let src_ip = u32::from_be_bytes([ipv4hdr.src_addr.0[0], ipv4hdr.src_addr.0[1], ipv4hdr.src_addr.0[2], ipv4hdr.src_addr.0[3]]);
+    let src_ip = u32::from_be_bytes([
+        ipv4hdr.src_addr.0[0],
+        ipv4hdr.src_addr.0[1],
+        ipv4hdr.src_addr.0[2],
+        ipv4hdr.src_addr.0[3],
+    ]);
 
     // === Spam protection ===
     let counter_key = src_ip;
@@ -55,16 +60,16 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
         ipv4hdr_mut.checksum = ipv4hdr_mut.calc_checksum()?;
 
         info!(&ctx, "Routed {} to DoubleZero {}", src_ip, dest_ip);
-        Ok(1) // XDP_TX (send out same interface)
+        Ok(1) // XDP_TX
     } else {
-        Ok(1) // XDP_PASS (default route)
+        Ok(1) // XDP_PASS (default)
     }
 }
 
 // eBPF Maps
-#[aya_log_ebpf::init]
-#[map]
+aya_log_ebpf::init!();
+#[aya_bpf::map]
 static CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 
-#[map]
+#[aya_bpf::map]
 static ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);

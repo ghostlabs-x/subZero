@@ -18,9 +18,9 @@ struct Args {
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
-    // Load BPF
+    // Load BPF (path to compiled object)
     let mut bpf = Bpf::load(include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/release/xdp_router"
+        "../xdp_router/target/bpfel-unknown-none/release/xdp_router"
     ))?;
 
     // Attach XDP to wg0
@@ -32,15 +32,15 @@ async fn main() -> Result<(), anyhow::Error> {
     let mut logger = BpfLogger::init(Default::default())?;
     logger.start()?;
 
-    // Example: Update route table every 10s (from your latency oracle)
+    // Example: Update route table every 10s (from latency oracle)
     let route_map = HashMap::try_from(bpf.map_mut("ROUTE_TABLE").unwrap())?;
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
             
-            // Mock latency oracle update (replace with DoubleZero feed)
+            // Mock update (replace with DoubleZero oracle)
             let us_west_client = Ipv4Addr::new(10, 0, 0, 0);
-            let low_latency_dz = Ipv4Addr::new(203, 0, 113, 50); // Example DoubleZero IP
+            let low_latency_dz = Ipv4Addr::new(203, 0, 113, 50);
             
             route_map.insert(
                 &u32::from(us_west_client),
