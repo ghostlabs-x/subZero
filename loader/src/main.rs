@@ -1,27 +1,56 @@
-// loader/src/main.rs
-use libbpf_rs::{MapHandle, Program};
+use aya::{
+    include_bytes_aligned,
+    maps::HashMap,
+    programs::{InterfaceLink, Xdp, XdpFlags},
+    Bpf,
+};
+use aya_log::{BpfLogger, BpfLoggerInfo};
+use clap::Parser;
 use std::net::Ipv4Addr;
 
-fn main() -> anyhow::Result<()> {
-    let mut skel = xdp_router::XdpRouterSkel::load()?;
-    skel.progs_mut().xdp_router().attach("wg0")?;
+#[derive(Parser)]
+struct Args {
+    #[arg(short, long, default_value = "wg0")]
+    interface: String,
+}
 
-    let route_map = skel.maps_mut().route_table();
-    let counter_map = skel.maps_mut().client_counter();
+#[tokio::main]
+async fn main() -> Result<(), anyhow::Error> {
+    let args = Args::parse();
 
-    // Example: Route all US-West clients to a low-latency DoubleZero node
-    route_map.update(
-        &(Ipv4Addr::new(10, 0, 0, 0).into()),
-        &(Ipv4Addr::new(203, 0, 113, 50).into()),
-        libbpf_rs::MapFlags::ANY,
-    )?;
+    // Load BPF
+    let mut bpf = Bpf::load(include_bytes_aligned!(
+        "../../target/bpfel-unknown-none/release/xdp_router"
+    ))?;
 
-    // Reset counters every 1s (anti-spam)
-    std::thread::spawn(move || loop {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        counter_map.clear();
+    // Attach XDP to wg0
+    let program: &mut Xdp = bpf.program_mut("xdp_router").unwrap().try_into()?;
+    program.load()?;
+    program.attach(&args.interface, XdpFlags::default())?;
+
+    // Setup logging
+    let mut logger = BpfLogger::init(Default::default())?;
+    logger.start()?;
+
+    // Example: Update route table every 10s (from your latency oracle)
+    let route_map = HashMap::try_from(bpf.map_mut("ROUTE_TABLE").unwrap())?;
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            
+            // Mock latency oracle update (replace with DoubleZero feed)
+            let us_west_client = Ipv4Addr::new(10, 0, 0, 0);
+            let low_latency_dz = Ipv4Addr::new(203, 0, 113, 50); // Example DoubleZero IP
+            
+            route_map.insert(
+                &u32::from(us_west_client),
+                &u32::from(low_latency_dz),
+                0,
+            ).expect("Failed to update route");
+        }
     });
 
-    println!("XDP router loaded on wg0 – press Ctrl+C to stop");
-    loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+    println!("XDP router attached to {} – Ctrl+C to stop", args.interface);
+    tokio::signal::ctrl_c().await?;
+    Ok(())
 }

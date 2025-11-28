@@ -1,0 +1,3 @@
+[workspace]
+members = ["xdp_router", "loader"]
+resolver = "2"  # Fixes your edition warning
