@@ -5,12 +5,11 @@ use aya_bpf::{
     macros::xdp,
     maps::HashMap,
     programs::XdpContext,
-    BpfContextObject, Error,
+    Error,
 };
-use aya_log_ebpf::info;
 use network_types::{
     eth::{EthHdr, EtherType},
-    ip::{Ipv4Hdr, IpProto},
+    ip::Ipv4Hdr,
 };
 
 #[xdp]
@@ -44,30 +43,27 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
     let mut counter = CLIENT_COUNTER.get(&counter_key).unwrap_or(&0u64);
     *counter += 1;
     if *counter > 100 {
-        info!(&ctx, "Dropping spam from {}", src_ip);
         return Ok(0); // XDP_DROP
     }
-    CLIENT_COUNTER.insert(&counter_key, counter, 0)?; // Update map
+    CLIENT_COUNTER.insert(&counter_key, counter, 0)?;
 
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
         // Rewrite destination IP
         let mut ipv4hdr_mut = unsafe { &mut *(ipv4hdr as *mut Ipv4Hdr) };
         let old_dest = ipv4hdr_mut.dst_addr;
-        ipv4hdr_mut.dst_addr = u32::from_be_bytes(dest_ip.to_be_bytes()); // Assuming dest_ip is u32
+        ipv4hdr_mut.dst_addr = u32::from_be_bytes(dest_ip.to_be_bytes());
 
-        // Recalculate checksum (aya helper)
+        // Recalculate checksum
         ipv4hdr_mut.checksum = ipv4hdr_mut.calc_checksum()?;
 
-        info!(&ctx, "Routed {} to DoubleZero {}", src_ip, dest_ip);
         Ok(1) // XDP_TX
     } else {
         Ok(1) // XDP_PASS (default)
     }
 }
 
-// eBPF Maps
-aya_log_ebpf::init!();
+// eBPF Maps (no logging macros)
 #[aya_bpf::map]
 static CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 

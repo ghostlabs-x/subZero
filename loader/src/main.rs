@@ -4,7 +4,6 @@ use aya::{
     programs::{InterfaceLink, Xdp, XdpFlags},
     Bpf,
 };
-use aya_log::{BpfLogger, BpfLoggerInfo};
 use clap::Parser;
 use std::net::Ipv4Addr;
 
@@ -18,7 +17,7 @@ struct Args {
 async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
-    // Load BPF (path to compiled object)
+    // Load BPF
     let mut bpf = Bpf::load(include_bytes_aligned!(
         "../xdp_router/target/bpfel-unknown-none/release/xdp_router"
     ))?;
@@ -28,17 +27,13 @@ async fn main() -> Result<(), anyhow::Error> {
     program.load()?;
     program.attach(&args.interface, XdpFlags::default())?;
 
-    // Setup logging
-    let mut logger = BpfLogger::init(Default::default())?;
-    logger.start()?;
-
-    // Example: Update route table every 10s (from latency oracle)
+    // Route table updater (every 10s)
     let route_map = HashMap::try_from(bpf.map_mut("ROUTE_TABLE").unwrap())?;
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
             
-            // Mock update (replace with DoubleZero oracle)
+            // Mock latency oracle (replace with DoubleZero feed)
             let us_west_client = Ipv4Addr::new(10, 0, 0, 0);
             let low_latency_dz = Ipv4Addr::new(203, 0, 113, 50);
             

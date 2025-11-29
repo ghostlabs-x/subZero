@@ -4,8 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aya = "0.13.1"  # Latest stable
-aya-log-ebpf = "0.1.0"
+aya = "0.13.1"  # Core eBPF
 
 [lib]
 crate-type = ["cdylib"]
