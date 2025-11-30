@@ -3,7 +3,7 @@
 
 use aya_ebpf::{
     bindings::xdp_action,
-    macros::xdp,
+    macros::{map, xdp},
     maps::HashMap,
     programs::XdpContext,
 };
@@ -26,13 +26,15 @@ pub fn xdp_router(ctx: XdpContext) -> u32 {
 }
 
 fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
-    let ethhdr = ctx.load::<EthHdr>(0).map_err(|_| ())?;
+    let ethhdr = ctx.ptr_at::<EthHdr>(0).ok_or(())?;
+    let ethhdr = unsafe { *ethhdr };
 
     if ethhdr.ether_type != EtherType::Ipv4 {
         return Ok(xdp_action::XDP_PASS);
     }
 
-    let ipv4hdr = ctx.load::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).map_err(|_| ())?;
+    let ipv4hdr = ctx.ptr_at::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).ok_or(())?;
+    let ipv4hdr = unsafe { *ipv4hdr };
 
     let src_ip = u32::from_be_bytes([
         ipv4hdr.src_addr.0[0],
@@ -53,7 +55,7 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
         // Rewrite destination IP
-        let ipv4hdr_mut = ctx.load_mut::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).map_err(|_| ())?;
+        let ipv4hdr_mut = ctx.ptr_at_mut::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).ok_or(())?;
         ipv4hdr_mut.dst_addr = dest_ip;
 
         // Recalculate checksum
@@ -67,8 +69,8 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
 }
 
 // eBPF Maps
-#[aya_ebpf::map]
+#[map]
 static mut CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 
-#[aya_ebpf::map]
+#[map]
 static mut ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);
