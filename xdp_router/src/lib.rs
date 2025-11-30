@@ -26,15 +26,13 @@ pub fn xdp_router(ctx: XdpContext) -> u32 {
 }
 
 fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
-    let ethhdr: *const EthHdr = ctx.try_ptr_at(0)?;
-    let ethhdr = unsafe { *ethhdr };
+    let ethhdr = ctx.load::<EthHdr>(0).map_err(|_| ())?;
 
     if ethhdr.ether_type != EtherType::Ipv4 {
         return Ok(xdp_action::XDP_PASS);
     }
 
-    let ipv4hdr: *const Ipv4Hdr = ctx.try_ptr_at(core::mem::size_of::<EthHdr>())?;
-    let ipv4hdr = unsafe { *ipv4hdr };
+    let ipv4hdr = ctx.load::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).map_err(|_| ())?;
 
     let src_ip = u32::from_be_bytes([
         ipv4hdr.src_addr.0[0],
@@ -50,14 +48,13 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
     if counter > 100 {
         return Ok(xdp_action::XDP_DROP);
     }
-    CLIENT_COUNTER.insert(&counter_key, &counter, 0)?;
+    CLIENT_COUNTER.insert(&counter_key, &counter, 0).map_err(|_| ())?;
 
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
         // Rewrite destination IP
-        let mut ipv4hdr_mut = unsafe { &mut *(ipv4hdr as *mut Ipv4Hdr) };
-        let old_dest = ipv4hdr_mut.dst_addr;
-        ipv4hdr_mut.dst_addr = u32::from_be_bytes(dest_ip.to_be_bytes());
+        let ipv4hdr_mut = ctx.load_mut::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).map_err(|_| ())?;
+        ipv4hdr_mut.dst_addr = dest_ip;
 
         // Recalculate checksum
         ipv4hdr_mut.checksum = 0;
@@ -70,8 +67,8 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
 }
 
 // eBPF Maps
-#[aya_ebpf::maps::HashMap]
+#[aya_ebpf::map]
 static mut CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 
-#[aya_ebpf::maps::HashMap]
+#[aya_ebpf::map]
 static mut ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);
