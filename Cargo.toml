@@ -1,3 +1,9 @@
 [workspace]
 members = ["xdp_router", "loader"]
 resolver = "2"  # Fixes your edition warning
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"

@@ -4,13 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aya = "0.13.1"  # Core eBPF
+aya-bpf = "0.13.1"
+network-types = "0.8"
 
 [lib]
 crate-type = ["cdylib"]
-
-[profile.release]
-opt-level = "s"
-lto = true
-codegen-units = 1
-panic = "abort"
