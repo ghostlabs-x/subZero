@@ -2,34 +2,38 @@
 #![no_main]
 
 use aya_ebpf::{
-    bindings::Layer,
+    bindings::xdp_action,
     macros::xdp,
     maps::HashMap,
     programs::XdpContext,
-    Error,
 };
 use network_types::{
     eth::{EthHdr, EtherType},
     ip::Ipv4Hdr,
 };
 
+#[panic_handler]
+fn panic(_info: &core::panic::PanicInfo) -> ! {
+    unsafe { core::hint::unreachable_unchecked() }
+}
+
 #[xdp]
 pub fn xdp_router(ctx: XdpContext) -> u32 {
     match try_xdp_router(ctx) {
         Ok(ret) => ret,
-        Err(_) => 2, // XDP_DROP
+        Err(_) => xdp_action::XDP_DROP,
     }
 }
 
-fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
-    let ethhdr: *const EthHdr = ctx.layer(Layer::Ethernet)?.header();
+fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
+    let ethhdr: *const EthHdr = ctx.try_ptr_at(0)?;
     let ethhdr = unsafe { *ethhdr };
 
     if ethhdr.ether_type != EtherType::Ipv4 {
-        return Ok(1); // XDP_PASS
+        return Ok(xdp_action::XDP_PASS);
     }
 
-    let ipv4hdr: *const Ipv4Hdr = ctx.layer(Layer::Ipv4)?.header();
+    let ipv4hdr: *const Ipv4Hdr = ctx.try_ptr_at(core::mem::size_of::<EthHdr>())?;
     let ipv4hdr = unsafe { *ipv4hdr };
 
     let src_ip = u32::from_be_bytes([
@@ -41,12 +45,12 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
 
     // === Spam protection ===
     let counter_key = src_ip;
-    let mut counter = CLIENT_COUNTER.get(&counter_key).unwrap_or(&0u64);
-    *counter += 1;
-    if *counter > 100 {
-        return Ok(0); // XDP_DROP
+    let mut counter = CLIENT_COUNTER.get(&counter_key).copied().unwrap_or(0u64);
+    counter += 1;
+    if counter > 100 {
+        return Ok(xdp_action::XDP_DROP);
     }
-    CLIENT_COUNTER.insert(&counter_key, counter, 0)?;
+    CLIENT_COUNTER.insert(&counter_key, &counter, 0)?;
 
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
@@ -56,17 +60,18 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
         ipv4hdr_mut.dst_addr = u32::from_be_bytes(dest_ip.to_be_bytes());
 
         // Recalculate checksum
-        ipv4hdr_mut.checksum = ipv4hdr_mut.calc_checksum()?;
+        ipv4hdr_mut.checksum = 0;
+        ipv4hdr_mut.checksum = ipv4hdr_mut.calc_checksum();
 
-        Ok(1) // XDP_TX
+        Ok(xdp_action::XDP_TX)
     } else {
-        Ok(1) // XDP_PASS (default)
+        Ok(xdp_action::XDP_PASS)
     }
 }
 
-// eBPF Maps (no logging macros)
-#[aya_ebpf::map]
-static CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
+// eBPF Maps
+#[aya_ebpf::maps::HashMap]
+static mut CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 
-#[aya_ebpf::map]
-static ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);
+#[aya_ebpf::maps::HashMap]
+static mut ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);
