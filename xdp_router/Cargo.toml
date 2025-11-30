@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 aya-ebpf = { git = "https://github.com/aya-rs/aya", package = "aya-ebpf" }
-network-types = "0.8"
+network-types = "0.1.0"
 
 [lib]
 crate-type = ["cdylib"]
