@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use aya_bpf::{
+use aya_ebpf::{
     bindings::Layer,
     macros::xdp,
     maps::HashMap,
@@ -65,8 +65,8 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, Error> {
 }
 
 // eBPF Maps (no logging macros)
-#[aya_bpf::map]
+#[aya_ebpf::map]
 static CLIENT_COUNTER: HashMap<u32, u64> = HashMap::<u32, u64>::with_max_entries(100_000, 0);
 
-#[aya_bpf::map]
+#[aya_ebpf::map]
 static ROUTE_TABLE: HashMap<u32, u32> = HashMap::<u32, u32>::with_max_entries(65_536, 0);
