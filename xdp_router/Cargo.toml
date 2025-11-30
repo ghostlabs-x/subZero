@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-aya-bpf = { git = "https://github.com/aya-rs/aya", tag = "v0.13.1" }
+aya-bpf = { git = "https://github.com/aya-rs/aya" }
 network-types = "0.8"
 
 [lib]
