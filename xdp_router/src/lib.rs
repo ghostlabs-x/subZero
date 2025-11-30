@@ -2,6 +2,7 @@
 #![no_main]
 
 use aya_bpf::{
+    bindings::Layer,
     macros::xdp,
     maps::HashMap,
     programs::XdpContext,
