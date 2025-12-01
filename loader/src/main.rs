@@ -6,7 +6,7 @@ use aya::{
 };
 use clap::Parser;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 #[derive(Parser)]
 struct Args {
@@ -30,8 +30,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
     println!("XDP router attached to {} – Ctrl+C to stop", args.interface);
     
-    // Share bpf with spawned task using Arc
-    let bpf = Arc::new(bpf);
+    // Share bpf with spawned task using Arc<Mutex<>> for mutable access
+    let bpf = Arc::new(Mutex::new(bpf));
     let bpf_clone = bpf.clone();
     
     // Spawn task to update route table
@@ -43,14 +43,16 @@ async fn main() -> Result<(), anyhow::Error> {
             let us_west_client = Ipv4Addr::new(10, 0, 0, 0);
             let low_latency_dz = Ipv4Addr::new(203, 0, 113, 50);
             
-            // Access map through the Arc-wrapped bpf
-            if let Some(map) = bpf_clone.map_mut("ROUTE_TABLE") {
-                if let Ok(mut route_map) = HashMap::<_, u32, u32>::try_from(map) {
-                    route_map.insert(
-                        &u32::from(us_west_client),
-                        &u32::from(low_latency_dz),
-                        0,
-                    ).expect("Failed to update route");
+            // Access map through the Mutex-protected bpf
+            if let Ok(mut bpf_guard) = bpf_clone.lock() {
+                if let Some(map) = bpf_guard.map_mut("ROUTE_TABLE") {
+                    if let Ok(mut route_map) = HashMap::<_, u32, u32>::try_from(map) {
+                        route_map.insert(
+                            &u32::from(us_west_client),
+                            &u32::from(low_latency_dz),
+                            0,
+                        ).expect("Failed to update route");
+                    }
                 }
             }
         }
