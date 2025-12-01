@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)] // eBPF maps are safe - managed by kernel atomically
 
 use aya_ebpf::{
     bindings::xdp_action,

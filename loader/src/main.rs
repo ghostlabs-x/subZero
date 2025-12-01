@@ -1,8 +1,8 @@
 use aya::{
     include_bytes_aligned,
     maps::HashMap,
-    programs::{InterfaceLink, Xdp, XdpFlags},
-    Bpf,
+    programs::{Xdp, XdpFlags},
+    Ebpf,
 };
 use clap::Parser;
 use std::net::Ipv4Addr;
@@ -18,8 +18,8 @@ async fn main() -> Result<(), anyhow::Error> {
     let args = Args::parse();
 
     // Load BPF
-    let mut bpf = Bpf::load(include_bytes_aligned!(
-        "../xdp_router/target/bpfel-unknown-none/release/xdp_router"
+    let mut bpf = Ebpf::load(include_bytes_aligned!(
+        "../target/bpfel-unknown-none/release/xdp_router"
     ))?;
 
     // Attach XDP to wg0
@@ -28,7 +28,7 @@ async fn main() -> Result<(), anyhow::Error> {
     program.attach(&args.interface, XdpFlags::default())?;
 
     // Route table updater (every 10s)
-    let route_map = HashMap::try_from(bpf.map_mut("ROUTE_TABLE").unwrap())?;
+    let route_map: HashMap<_, u32, u32> = HashMap::try_from(bpf.map_mut("ROUTE_TABLE")?)?;
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
