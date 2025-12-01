@@ -63,15 +63,22 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
 
     // === Spam protection ===
     let counter_key = src_ip;
-    let mut counter = CLIENT_COUNTER.get(&counter_key).copied().unwrap_or(0u64);
+    let mut counter = unsafe {
+        CLIENT_COUNTER.get(&counter_key).copied().unwrap_or(0u64)
+    };
     counter += 1;
     if counter > 100 {
         return Ok(xdp_action::XDP_DROP);
     }
-    CLIENT_COUNTER.insert(&counter_key, &counter, 0).map_err(|_| ())?;
+    unsafe {
+        CLIENT_COUNTER.insert(&counter_key, &counter, 0).map_err(|_| ())?;
+    }
 
     // === Route table lookup ===
-    if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
+    let dest_ip = unsafe {
+        ROUTE_TABLE.get(&src_ip).copied()
+    };
+    if let Some(dest_ip) = dest_ip {
         // Rewrite destination IP
         let ipv4hdr_mut: *mut Ipv4Hdr = ptr_at_mut(&ctx, EthHdr::LEN)?;
         unsafe {
