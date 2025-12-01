@@ -19,7 +19,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
     // Load BPF
     let mut bpf = Ebpf::load(include_bytes_aligned!(
-        "../target/bpfel-unknown-none/release/xdp_router"
+        "../../target/bpfel-unknown-none/release/libxdp_router.so"
     ))?;
 
     // Attach XDP to wg0
@@ -28,7 +28,9 @@ async fn main() -> Result<(), anyhow::Error> {
     program.attach(&args.interface, XdpFlags::default())?;
 
     // Route table updater (every 10s)
-    let route_map: HashMap<_, u32, u32> = HashMap::try_from(bpf.map_mut("ROUTE_TABLE")?)?;
+    let route_map: HashMap<_, u32, u32> = HashMap::try_from(
+        bpf.map_mut("ROUTE_TABLE").ok_or(anyhow::anyhow!("ROUTE_TABLE map not found"))?
+    )?;
     tokio::spawn(async move {
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
