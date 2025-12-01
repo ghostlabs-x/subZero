@@ -18,23 +18,27 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
 }
 
 // Helper function to safely access packet data at a given offset
-fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Option<&T> {
-    let start = ctx.data() + offset;
-    let end = start + core::mem::size_of::<T>();
-    if end > ctx.data_end() {
-        return None;
+#[inline(always)]
+fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Result<*const T, ()> {
+    let start = ctx.data();
+    let end = ctx.data_end();
+    let len = core::mem::size_of::<T>();
+    if start + offset + len > end {
+        return Err(());
     }
-    Some(unsafe { &*(start as *const T) })
+    Ok((start + offset) as *const T)
 }
 
 // Helper function to safely access mutable packet data at a given offset
-fn ptr_at_mut<T>(ctx: &XdpContext, offset: usize) -> Option<&mut T> {
-    let start = ctx.data() + offset;
-    let end = start + core::mem::size_of::<T>();
-    if end > ctx.data_end() {
-        return None;
+#[inline(always)]
+fn ptr_at_mut<T>(ctx: &XdpContext, offset: usize) -> Result<*mut T, ()> {
+    let start = ctx.data();
+    let end = ctx.data_end();
+    let len = core::mem::size_of::<T>();
+    if start + offset + len > end {
+        return Err(());
     }
-    Some(unsafe { &mut *(start as *mut T) })
+    Ok((start + offset) as *mut T)
 }
 
 #[xdp]
@@ -46,22 +50,16 @@ pub fn xdp_router(ctx: XdpContext) -> u32 {
 }
 
 fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
-    let ethhdr = ptr_at::<EthHdr>(&ctx, 0).ok_or(())?;
-    let ethhdr = *ethhdr;
-
-    if ethhdr.ether_type != EtherType::Ipv4 {
-        return Ok(xdp_action::XDP_PASS);
+    let ethhdr: *const EthHdr = ptr_at(&ctx, 0)?;
+    
+    match unsafe { (*ethhdr).ether_type() } {
+        Ok(EtherType::Ipv4) => {}
+        _ => return Ok(xdp_action::XDP_PASS),
     }
 
-    let ipv4hdr = ptr_at::<Ipv4Hdr>(&ctx, core::mem::size_of::<EthHdr>()).ok_or(())?;
-    let ipv4hdr = *ipv4hdr;
-
-    let src_ip = u32::from_be_bytes([
-        ipv4hdr.src_addr.0[0],
-        ipv4hdr.src_addr.0[1],
-        ipv4hdr.src_addr.0[2],
-        ipv4hdr.src_addr.0[3],
-    ]);
+    let ipv4hdr: *const Ipv4Hdr = ptr_at(&ctx, EthHdr::LEN)?;
+    let src_addr = unsafe { (*ipv4hdr).src_addr };
+    let src_ip = u32::from_be_bytes(src_addr);
 
     // === Spam protection ===
     let counter_key = src_ip;
@@ -75,12 +73,14 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
         // Rewrite destination IP
-        let ipv4hdr_mut = ptr_at_mut::<Ipv4Hdr>(&ctx, core::mem::size_of::<EthHdr>()).ok_or(())?;
-        ipv4hdr_mut.dst_addr = dest_ip;
-
-        // Recalculate checksum
-        ipv4hdr_mut.checksum = 0;
-        ipv4hdr_mut.checksum = ipv4hdr_mut.calc_checksum();
+        let ipv4hdr_mut: *mut Ipv4Hdr = ptr_at_mut(&ctx, EthHdr::LEN)?;
+        unsafe {
+            (*ipv4hdr_mut).dst_addr = dest_ip.to_be_bytes();
+            
+            // Recalculate checksum
+            (*ipv4hdr_mut).checksum = 0;
+            (*ipv4hdr_mut).checksum = (*ipv4hdr_mut).calc_checksum();
+        }
 
         Ok(xdp_action::XDP_TX)
     } else {
