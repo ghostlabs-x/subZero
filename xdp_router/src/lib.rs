@@ -17,6 +17,26 @@ fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
 }
 
+// Helper function to safely access packet data at a given offset
+fn ptr_at<T>(ctx: &XdpContext, offset: usize) -> Option<&T> {
+    let start = ctx.data() + offset;
+    let end = start + core::mem::size_of::<T>();
+    if end > ctx.data_end() {
+        return None;
+    }
+    Some(unsafe { &*(start as *const T) })
+}
+
+// Helper function to safely access mutable packet data at a given offset
+fn ptr_at_mut<T>(ctx: &XdpContext, offset: usize) -> Option<&mut T> {
+    let start = ctx.data() + offset;
+    let end = start + core::mem::size_of::<T>();
+    if end > ctx.data_end() {
+        return None;
+    }
+    Some(unsafe { &mut *(start as *mut T) })
+}
+
 #[xdp]
 pub fn xdp_router(ctx: XdpContext) -> u32 {
     match try_xdp_router(ctx) {
@@ -26,15 +46,15 @@ pub fn xdp_router(ctx: XdpContext) -> u32 {
 }
 
 fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
-    let ethhdr = ctx.ptr_at::<EthHdr>(0).ok_or(())?;
-    let ethhdr = unsafe { *ethhdr };
+    let ethhdr = ptr_at::<EthHdr>(&ctx, 0).ok_or(())?;
+    let ethhdr = *ethhdr;
 
     if ethhdr.ether_type != EtherType::Ipv4 {
         return Ok(xdp_action::XDP_PASS);
     }
 
-    let ipv4hdr = ctx.ptr_at::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).ok_or(())?;
-    let ipv4hdr = unsafe { *ipv4hdr };
+    let ipv4hdr = ptr_at::<Ipv4Hdr>(&ctx, core::mem::size_of::<EthHdr>()).ok_or(())?;
+    let ipv4hdr = *ipv4hdr;
 
     let src_ip = u32::from_be_bytes([
         ipv4hdr.src_addr.0[0],
@@ -55,7 +75,7 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
     // === Route table lookup ===
     if let Some(&dest_ip) = ROUTE_TABLE.get(&src_ip) {
         // Rewrite destination IP
-        let ipv4hdr_mut = ctx.ptr_at_mut::<Ipv4Hdr>(core::mem::size_of::<EthHdr>()).ok_or(())?;
+        let ipv4hdr_mut = ptr_at_mut::<Ipv4Hdr>(&ctx, core::mem::size_of::<EthHdr>()).ok_or(())?;
         ipv4hdr_mut.dst_addr = dest_ip;
 
         // Recalculate checksum
