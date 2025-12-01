@@ -77,9 +77,10 @@ fn try_xdp_router(ctx: XdpContext) -> Result<u32, ()> {
         unsafe {
             (*ipv4hdr_mut).dst_addr = dest_ip.to_be_bytes();
             
-            // Recalculate checksum
-            (*ipv4hdr_mut).checksum = 0;
-            (*ipv4hdr_mut).checksum = (*ipv4hdr_mut).calc_checksum();
+            // Set checksum to 0 (kernel will recalculate if needed)
+            // The checksum field is at offset 10 in the IPv4 header (2 bytes)
+            let header_ptr = (ipv4hdr_mut as *mut u8).add(10);
+            *(header_ptr as *mut u16) = 0u16.to_be();
         }
 
         Ok(xdp_action::XDP_TX)
